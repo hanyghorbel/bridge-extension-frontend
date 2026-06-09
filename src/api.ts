@@ -1,4 +1,12 @@
-import type { CompanyDOMData, SyncConflictResponse, SyncRequest, SyncSuccessResponse } from './types';
+import { getLinkedInCompanyUrlFromTab } from './linkedin';
+import type {
+    CompanyDOMData,
+    CompanyLookupResponse,
+    SyncConflictResponse,
+    SyncRequest,
+    SyncSuccessResponse,
+    SyncedCompanySummary,
+} from './types';
 
 export const API_BASE_URL = 'http://localhost:8080';
 
@@ -88,4 +96,44 @@ export async function syncCompany(
 
 export function getAuthUrl(): string {
     return `${API_BASE_URL}/auth/attio`;
+}
+
+export async function lookupCompany(
+    token: string,
+    linkedinUrl: string,
+): Promise<CompanyLookupResponse> {
+    const params = new URLSearchParams({ linkedin_url: linkedinUrl });
+
+    const response = await fetch(`${API_BASE_URL}/api/companies/lookup?${params}`, {
+        method: 'GET',
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+    }
+
+    return (await response.json()) as CompanyLookupResponse;
+}
+
+export async function lookupCompanyFromActiveTab(
+    token: string,
+): Promise<{ type: 'not_company_page' } | { type: 'lookup'; result: CompanyLookupResponse }> {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const linkedinUrl = tab?.url ? getLinkedInCompanyUrlFromTab(tab.url) : null;
+
+    if (!linkedinUrl) {
+        return { type: 'not_company_page' };
+    }
+
+    const result = await lookupCompany(token, linkedinUrl);
+    return { type: 'lookup', result };
+}
+
+export function isSyncedCompany(
+    response: CompanyLookupResponse,
+): response is SyncedCompanySummary {
+    return response.status === 'synced';
 }

@@ -6,7 +6,8 @@
   "permissions": [
     "activeTab",
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "tabs"
   ],
   "host_permissions": [
     "https://*.linkedin.com/*",
@@ -19,7 +20,8 @@
   "content_scripts": [
     {
       "matches": ["https://*.linkedin.com/company/*"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "type": "module"
     }
   ],
   "side_panel": {

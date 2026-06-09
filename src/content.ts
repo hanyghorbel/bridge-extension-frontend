@@ -1,18 +1,36 @@
-import type {CompanyDOMData, ExtensionMessage} from "./types";
+import type { CompanyDOMData, ExtensionMessage } from "./types";
 
-// Listen for scrape extraction requests coming from the React Panel UI
+// Keep URL helpers inlined here so Vite never emits a shared chunk for content.js.
+// Content scripts cannot load separate module chunks unless the manifest declares type:module.
+function isLinkedInCompanyPage(url: string): boolean {
+    return !!url && /linkedin\.com\/company\//i.test(url);
+}
+
+function normalizeLinkedInCompanyUrl(rawUrl: string): string | null {
+    const withoutQuery = rawUrl.trim().split("?")[0].replace(/\/$/, "");
+    const match = withoutQuery.match(/linkedin\.com\/company\/([^/?#]+)/i);
+    if (!match) {
+        return null;
+    }
+
+    return `https://www.linkedin.com/company/${match[1].toLowerCase()}/`;
+}
+
+function getLinkedInCompanyUrlFromTab(tabUrl: string): string | null {
+    if (!isLinkedInCompanyPage(tabUrl)) {
+        return null;
+    }
+
+    return normalizeLinkedInCompanyUrl(tabUrl);
+}
+
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
     if (message.type === "EXTRACT_DOM") {
         try {
-            // 1. Scrape the Company Name from the main h1 element
             const nameElement = document.querySelector("h1");
             const companyName = nameElement ? nameElement.textContent?.trim() || "" : "";
+            const linkedinUrl = getLinkedInCompanyUrlFromTab(window.location.href) ?? "";
 
-            // 2. Grab the current LinkedIn clean canonical URL reference
-            const linkedinUrl = window.location.href.split("?")[0];
-
-            // 3. Scrape the company domain out of the LinkedIn layout structures
-            // Note: LinkedIn changes selectors frequently, a robust fallback strategy reads link references
             let domain = "";
             const websiteLink = document.querySelector("a[href*='//'][target='_blank']");
             if (websiteLink) {
@@ -26,7 +44,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
             const extractedData: CompanyDOMData = {
                 companyName,
                 linkedinUrl,
-                domain
+                domain,
             };
 
             sendResponse({ type: "DOM_DATA_RESPONSE", data: extractedData });
@@ -35,5 +53,5 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
             sendResponse({ type: "DOM_DATA_RESPONSE", data: null });
         }
     }
-    return true; // Keeps the communication message channel open asynchronously
+    return true;
 });

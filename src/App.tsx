@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import CompanyStatusPanel from './CompanyStatusPanel';
 import { getAuthUrl, syncCompany, SyncConflictError } from './api';
 import { extractDomFromTab } from './extension';
+import { useCompanyRecognition } from './useCompanyRecognition';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
@@ -8,6 +10,7 @@ export default function App() {
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncConflict, setSyncConflict] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { state: recognitionState, refresh: refreshRecognition } = useCompanyRecognition(token);
 
   useEffect(() => {
     chrome.storage.local.get(['attio_jwt'], (result) => {
@@ -52,10 +55,12 @@ export default function App() {
       const companyData = await extractDomFromTab(tab.id);
       const result = await syncCompany(token, companyData);
       setSyncResult(result.record_url);
+      await refreshRecognition();
     } catch (err) {
       if (err instanceof SyncConflictError) {
         setSyncConflict(err.recordUrl || null);
         setError(err.message);
+        await refreshRecognition();
       } else {
         const errorMessage = err instanceof Error ? err.message : 'An unexpected execution error occurred.';
         setError(errorMessage);
@@ -73,6 +78,10 @@ export default function App() {
     setError(null);
   };
 
+  const showStandaloneSyncButton =
+      recognitionState.status !== 'not_synced' &&
+      recognitionState.status !== 'synced';
+
   return (
       <div style={{ padding: '16px', fontFamily: 'sans-serif' }}>
         <h2 style={{ margin: '0 0 16px 0' }}>Attio Bridge</h2>
@@ -89,15 +98,23 @@ export default function App() {
             </div>
         ) : (
             <div>
-              <p style={{ fontSize: '13px', color: '#16a34a' }}>✓ Connected to Attio Workspace</p>
+              <p style={{ fontSize: '13px', color: '#16a34a', marginBottom: '16px' }}>✓ Connected to Attio Workspace</p>
 
-              <button
-                  onClick={handleSyncCompany}
-                  disabled={loading}
-                  style={{ width: '100%', padding: '12px', background: loading ? '#9ca3af' : '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', marginBottom: '12px' }}
-              >
-                {loading ? 'Syncing...' : 'Sync Company to Attio'}
-              </button>
+              <CompanyStatusPanel
+                  state={recognitionState}
+                  onAdd={handleSyncCompany}
+                  adding={loading}
+              />
+
+              {showStandaloneSyncButton && (
+                  <button
+                      onClick={handleSyncCompany}
+                      disabled={loading || recognitionState.status === 'not_company_page'}
+                      style={{ width: '100%', padding: '12px', background: loading ? '#9ca3af' : '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', marginBottom: '12px' }}
+                  >
+                    {loading ? 'Syncing...' : 'Sync Company to Attio'}
+                  </button>
+              )}
 
               {syncResult && (
                   <div style={{ marginTop: '16px', padding: '12px', background: '#f0fdf4', borderRadius: '4px', border: '1px solid #bbf7d0' }}>

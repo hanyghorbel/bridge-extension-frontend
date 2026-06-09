@@ -21,7 +21,19 @@ export default defineConfig({
           // Keep other app assets hashed under assets/
           return 'assets/[name]-[hash].js';
         },
+        // Never emit shared chunks for extension entry points (content scripts cannot import them).
+        manualChunks(id) {
+          if (id.includes('src/content.ts') || id.includes('src/background.ts')) {
+            return undefined;
+          }
+          if (id.includes('node_modules')) {
+            return 'vendor';
+          }
+          return undefined;
+        },
       },
     },
   },
 });
+
+

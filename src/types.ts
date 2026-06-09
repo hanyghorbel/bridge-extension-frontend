@@ -24,3 +24,16 @@ export interface SyncConflictResponse {
     message: string;
     record_url: string;
 }
+
+export interface SyncedCompanySummary {
+    status: "synced";
+    company_name: string;
+    record_url: string;
+    synced_at: string;
+}
+
+export interface NotSyncedCompanyResponse {
+    status: "not_synced";
+}
+
+export type CompanyLookupResponse = SyncedCompanySummary | NotSyncedCompanyResponse;
