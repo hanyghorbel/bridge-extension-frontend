@@ -10,41 +10,51 @@ export type CompanyRecognitionState =
     | { status: 'not_synced' }
     | { status: 'error'; message: string };
 
+async function lookupCompanyState(token: string | null): Promise<CompanyRecognitionState> {
+    if (!token) {
+        return { status: 'idle' };
+    }
+
+    try {
+        const response = await lookupCompanyFromActiveTab(token);
+
+        if (response.type === 'not_company_page') {
+            return { status: 'not_company_page' };
+        }
+
+        if (isSyncedCompany(response.result)) {
+            return { status: 'synced', company: response.result };
+        }
+
+        return { status: 'not_synced' };
+    } catch (error) {
+        const message = error instanceof Error
+            ? error.message
+            : 'Failed to check whether this company is synced.';
+        return { status: 'error', message };
+    }
+}
+
 export function useCompanyRecognition(token: string | null) {
     const [state, setState] = useState<CompanyRecognitionState>({ status: 'idle' });
 
     const refresh = useCallback(async () => {
-        if (!token) {
-            setState({ status: 'idle' });
-            return;
-        }
-
         setState({ status: 'checking' });
-
-        try {
-            const response = await lookupCompanyFromActiveTab(token);
-
-            if (response.type === 'not_company_page') {
-                setState({ status: 'not_company_page' });
-                return;
-            }
-
-            if (isSyncedCompany(response.result)) {
-                setState({ status: 'synced', company: response.result });
-                return;
-            }
-
-            setState({ status: 'not_synced' });
-        } catch (error) {
-            const message = error instanceof Error
-                ? error.message
-                : 'Failed to check whether this company is synced.';
-            setState({ status: 'error', message });
-        }
+        const nextState = await lookupCompanyState(token);
+        setState(nextState);
     }, [token]);
 
     useEffect(() => {
-        void refresh();
+        let cancelled = false;
+
+        async function load() {
+            const nextState = await lookupCompanyState(token);
+            if (!cancelled) {
+                setState(nextState);
+            }
+        }
+
+        void load();
 
         const handleTabActivated = () => {
             void refresh();
@@ -63,10 +73,11 @@ export function useCompanyRecognition(token: string | null) {
         chrome.tabs.onUpdated.addListener(handleTabUpdated);
 
         return () => {
+            cancelled = true;
             chrome.tabs.onActivated.removeListener(handleTabActivated);
             chrome.tabs.onUpdated.removeListener(handleTabUpdated);
         };
-    }, [refresh]);
+    }, [token, refresh]);
 
     return { state, refresh };
 }
