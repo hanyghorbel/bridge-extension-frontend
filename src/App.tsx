@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
-import type { CompanyDOMData } from './types';
+import { getAuthUrl, syncCompany, SyncConflictError } from './api';
+import { extractDomFromTab } from './extension';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [syncConflict, setSyncConflict] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 1. Load the JWT token from storage on startup and listen for OAuth callback messages
   useEffect(() => {
     chrome.storage.local.get(['attio_jwt'], (result) => {
       if (result.attio_jwt) {
-        setToken(result.attio_jwt as string); // <-- Add 'as string' here
+        setToken(result.attio_jwt as string);
       }
     });
 
@@ -20,6 +21,7 @@ export default function App() {
         const jwt = event.data.token;
         chrome.storage.local.set({ attio_jwt: jwt });
         setToken(jwt);
+        setError(null);
       }
     };
 
@@ -27,60 +29,38 @@ export default function App() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
-  // 2. Trigger the Go backend OAuth Flow
   const handleConnect = () => {
-    window.open('http://localhost:8080/auth/attio', '_blank');
+    window.open(getAuthUrl(), '_blank');
   };
 
-  // 3. Coordinate DOM extraction and execute sync API call
   const handleSyncCompany = async () => {
     setLoading(true);
     setError(null);
     setSyncResult(null);
+    setSyncConflict(null);
 
     try {
-      // Find the active LinkedIn tab
+      if (!token) {
+        throw new Error('Please connect your Attio account first.');
+      }
+
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id || !tab.url?.includes('linkedin.com/company/')) {
         throw new Error('Please navigate to a valid LinkedIn company page.');
       }
 
-      // Send extraction message to the content script running in that active tab
-      chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_DOM' }, async (response) => {
-        if (!response || response.type !== 'DOM_DATA_RESPONSE' || !response.data) {
-          setError('Failed to extract data from page. Refresh the tab and try again.');
-          setLoading(false);
-          return;
-        }
-
-        const companyData: CompanyDOMData = response.data;
-
-        // Post the extracted structural details to your Go backend
-        const apiResponse = await fetch('http://localhost:8080/api/sync', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            company_name: companyData.companyName,
-            linkedin_url: companyData.linkedinUrl,
-            domain: companyData.domain || 'unknown.com',
-          }),
-        });
-
-        if (!apiResponse.ok) {
-          throw new Error('Backend failed to sync record to Attio.');
-        }
-
-        const result = await apiResponse.json();
-        setSyncResult(result.record_url);
-        setLoading(false);
-      });
+      const companyData = await extractDomFromTab(tab.id);
+      const result = await syncCompany(token, companyData);
+      setSyncResult(result.record_url);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unexpected execution error occurred.';
-
-      setError(errorMessage);
+      if (err instanceof SyncConflictError) {
+        setSyncConflict(err.recordUrl || null);
+        setError(err.message);
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'An unexpected execution error occurred.';
+        setError(errorMessage);
+      }
+    } finally {
       setLoading(false);
     }
   };
@@ -89,6 +69,8 @@ export default function App() {
     chrome.storage.local.remove(['attio_jwt']);
     setToken(null);
     setSyncResult(null);
+    setSyncConflict(null);
+    setError(null);
   };
 
   return (
@@ -127,8 +109,26 @@ export default function App() {
               )}
 
               {error && (
-                  <div style={{ marginTop: '16px', padding: '12px', background: '#fef2f2', borderRadius: '4px', border: '1px solid #fca5a5', color: '#dc2626', fontSize: '13px' }}>
-                    {error}
+                  <div style={{
+                    marginTop: '16px',
+                    padding: '12px',
+                    background: syncConflict ? '#fffbeb' : '#fef2f2',
+                    borderRadius: '4px',
+                    border: syncConflict ? '1px solid #fcd34d' : '1px solid #fca5a5',
+                    color: syncConflict ? '#b45309' : '#dc2626',
+                    fontSize: '13px',
+                  }}>
+                    <p style={{ margin: 0 }}>{error}</p>
+                    {syncConflict && (
+                        <a
+                            href={syncConflict}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ display: 'inline-block', marginTop: '8px', fontSize: '13px', color: '#2563eb', textDecoration: 'underline' }}
+                        >
+                          Open existing record in Attio ↗
+                        </a>
+                    )}
                   </div>
               )}
 
