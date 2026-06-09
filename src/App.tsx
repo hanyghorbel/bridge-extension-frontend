@@ -32,6 +32,35 @@ export default function App() {
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, []);
 
+  useEffect(() => {
+    const clearSyncFeedback = () => {
+      setSyncResult(null);
+      setSyncConflict(null);
+      setError(null);
+    };
+
+    const handleTabActivated = () => {
+      clearSyncFeedback();
+    };
+
+    const handleTabUpdated = (
+      _tabId: number,
+      changeInfo: { url?: string },
+    ) => {
+      if (changeInfo.url) {
+        clearSyncFeedback();
+      }
+    };
+
+    chrome.tabs.onActivated.addListener(handleTabActivated);
+    chrome.tabs.onUpdated.addListener(handleTabUpdated);
+
+    return () => {
+      chrome.tabs.onActivated.removeListener(handleTabActivated);
+      chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+    };
+  }, []);
+
   const handleConnect = () => {
     window.open(getAuthUrl(), '_blank');
   };
