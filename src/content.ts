@@ -71,7 +71,6 @@ async function extractCompanyWebsite() {
     // Extract and parse the URL if an element was found
     if (websiteLinkEl) {
         const urlAttr = websiteLinkEl.getAttribute("href");
-        console.warn("url website link: " + urlAttr);
 
         if (urlAttr) {
             try {
