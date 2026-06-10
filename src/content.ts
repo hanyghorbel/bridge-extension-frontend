@@ -24,22 +24,14 @@ function getLinkedInCompanyUrlFromTab(tabUrl: string): string | null {
     return normalizeLinkedInCompanyUrl(tabUrl);
 }
 
-chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (message: ExtensionMessage, _sender, sendResponse) => {
     if (message.type === "EXTRACT_DOM") {
         try {
             const nameElement = document.querySelector("h1");
             const companyName = nameElement ? nameElement.textContent?.trim() || "" : "";
             const linkedinUrl = getLinkedInCompanyUrlFromTab(window.location.href) ?? "";
 
-            let domain = "";
-            const websiteLink = document.querySelector("a[href*='//'][target='_blank']");
-            if (websiteLink) {
-                const urlAttr = websiteLink.getAttribute("href");
-                if (urlAttr) {
-                    const parsedUrl = new URL(urlAttr);
-                    domain = parsedUrl.hostname.replace("www.", "");
-                }
-            }
+            const domain = await extractCompanyWebsite() ?? "";
 
             const extractedData: CompanyDOMData = {
                 companyName,
@@ -55,3 +47,43 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
     }
     return true;
 });
+async function extractCompanyWebsite() {
+    let domain = null;
+
+    // Try to find the visible "Learn more" or "Visit website" link on the main card
+    let websiteLinkEl = document.querySelector('.org-top-card-primary-actions__action[href]');
+
+    // If not found, look for and open the "Three Dots" overflow menu
+    if (!websiteLinkEl) {
+        const threeDotsBtn = document.querySelector('button.org-overflow-menu__dropdown-trigger') as HTMLButtonElement;
+
+        if (threeDotsBtn) {
+            threeDotsBtn.click(); // Click to force LinkedIn to inject the dropdown HTML
+
+            // Wait 300ms for the dropdown animation/render to complete
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // Find the link inside the newly opened dropdown menu
+            websiteLinkEl = document.querySelector('.org-overflow-menu__content a[href*="http"]');
+        }
+    }
+
+    // Extract and parse the URL if an element was found
+    if (websiteLinkEl) {
+        const urlAttr = websiteLinkEl.getAttribute("href");
+        console.warn("url website link: " + urlAttr);
+
+        if (urlAttr) {
+            try {
+                const parsedUrl = new URL(urlAttr);
+                domain = parsedUrl.hostname.replace("www.", "");
+            } catch (e) {
+                console.error("Invalid URL format found", e);
+            }
+        }
+    }
+    return domain;
+}
+
+// Run the function
+extractCompanyWebsite();
